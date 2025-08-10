@@ -1,0 +1,17 @@
+{
+  "name": "saas-chat",
+  "private": true,
+  "version": "0.0.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:frontend": "pnpm --filter @app-frontend dev",
+    "dev:backend": "pnpm --filter @app-backend start:dev"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "packageManager": "pnpm@10.14.0"
+}

@@ -1,0 +1,89 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Company {
+  id        String   @id @default(uuid())
+  name      String
+  cnpj      String?
+  plan      String   @default("ESSENTIAL")
+  createdAt DateTime @default(now())
+  users     User[]
+  contacts  Contact[]
+  threads   Thread[]
+  metrics   Metric[]
+}
+
+model User {
+  id        String   @id @default(uuid())
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id])
+  name      String
+  email     String   @unique
+  password  String
+  role      String
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+}
+
+model Contact {
+  id        String   @id @default(uuid())
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id])
+  name      String
+  email     String?
+  phone     String?
+  metadata  Json?
+  createdAt DateTime @default(now())
+  threads   Thread[]
+}
+
+model Thread {
+  id           String   @id @default(uuid())
+  companyId    String
+  company      Company  @relation(fields: [companyId], references: [id])
+  contactId    String?
+  contact      Contact? @relation(fields: [contactId], references: [id])
+  status       String   @default("new")
+  subject      String?
+  createdBy    String?
+  createdAt    DateTime @default(now())
+  lastActivity DateTime?
+  messages     Message[]
+}
+
+model Message {
+  id          String   @id @default(uuid())
+  threadId    String
+  thread      Thread   @relation(fields: [threadId], references: [id])
+  senderType  String
+  senderId    String?
+  content     String?
+  contentJson Json?
+  attachments Json?
+  createdAt   DateTime @default(now())
+  readAt      DateTime?
+}
+
+model Metric {
+  id                 String  @id @default(uuid())
+  companyId          String
+  company            Company @relation(fields: [companyId], references: [id])
+  metricDate         DateTime
+  ticketsOpened      Int
+  ticketsClosed      Int
+  avgResponseSeconds Int
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String?
+  action    String
+  payload   Json?
+  createdAt DateTime @default(now())
+}
