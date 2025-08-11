@@ -35,7 +35,7 @@ interface ChatMessage {
 
 @WebSocketGateway({
   cors: {
-    origin: process.env.FRONTEND_ORIGIN || 'http://localhost:5173',
+    origin: process.env.FRONTEND_ORIGIN || ['http://localhost:5173', 'http://localhost:5174'],
     credentials: true,
   },
 })
@@ -136,6 +136,98 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       }, client.id);
       
       this.connectedUsers.delete(client.id);
+    }
+  }
+
+  @SubscribeMessage('getHistory')
+  async handleGetHistory(
+    @MessageBody() data: { page?: number; limit?: number },
+    @ConnectedSocket() client: AuthenticatedSocket,
+  ) {
+    try {
+      if (!client.user) {
+        return { error: 'Usuário não autenticado' };
+      }
+
+      const page = data?.page || 0;
+      const limit = data?.limit || 50;
+      
+      // Buscar thread padrão da empresa
+      const defaultThread = await this.messageService.getOrCreateDefaultThread(client.user.companyId);
+      
+      // Buscar mensagens
+      const messages = await this.messageService.getMessagesByThread(defaultThread.id);
+      
+      // Formatar mensagens
+      const formattedMessages = messages.map(msg => ({
+        id: msg.id,
+        text: msg.content || '',
+        sender: msg.senderType === 'agent' ? 'agent' : 'user',
+        senderType: msg.senderType,
+        senderName: msg.senderId || 'Usuário',
+        createdAt: msg.createdAt.toISOString(),
+        threadId: msg.threadId,
+      }));
+
+      // Implementar paginação simples
+      const start = page * limit;
+      const end = start + limit;
+      const paginatedMessages = formattedMessages.slice(start, end);
+      const hasMore = formattedMessages.length > end;
+
+      return {
+        messages: paginatedMessages,
+        hasMore,
+        total: formattedMessages.length,
+        page,
+      };
+    } catch (error) {
+      this.logger.error('Error getting history:', error);
+      return { error: 'Erro ao buscar histórico' };
+    }
+  }
+
+  @SubscribeMessage('sendMessage')
+  async handleSendMessage(
+    @MessageBody() data: { text: string; threadId?: string },
+    @ConnectedSocket() client: AuthenticatedSocket,
+  ) {
+    try {
+      if (!client.user) {
+        return { error: 'Usuário não autenticado' };
+      }
+
+      const user = client.user;
+      
+      // Sempre usar o thread padrão da empresa para evitar problemas de foreign key
+      const defaultThread = await this.messageService.getOrCreateDefaultThread(user.companyId);
+      const threadId = defaultThread.id;
+
+      // Salvar mensagem no banco
+      const savedMessage = await this.messageService.createMessage({
+        threadId: threadId,
+        senderType: user.role === 'agent' ? 'agent' : 'contact',
+        senderId: user.id,
+        content: data.text,
+      });
+
+      const chatMessage: ChatMessage = {
+        id: savedMessage.id,
+        text: savedMessage.content || '',
+        sender: user.role === 'agent' ? 'agent' : 'user',
+        senderType: savedMessage.senderType as 'agent' | 'contact',
+        senderName: user.name,
+        createdAt: savedMessage.createdAt.toISOString(),
+        threadId: savedMessage.threadId,
+      };
+
+      // Broadcast para todos os usuários da mesma empresa
+      this.broadcastToCompany(user.companyId, 'message', chatMessage);
+
+      return { message: chatMessage, success: true };
+    } catch (error) {
+      this.logger.error('Error sending message:', error);
+      return { error: 'Erro ao enviar mensagem' };
     }
   }
 
