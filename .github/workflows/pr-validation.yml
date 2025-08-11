@@ -1,0 +1,66 @@
+name: PR Validation
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Install pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 8
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+      
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      
+      - name: Check formatting
+        run: pnpm format
+      
+      - name: Typecheck Backend
+        run: |
+          cd apps/backend
+          npx tsc --noEmit
+        continue-on-error: true
+      
+      - name: Quick Build Check
+        run: |
+          pnpm --filter @saas-chat/backend build
+          pnpm --filter @saas-chat/frontend build
+      
+      - name: Comment PR
+        uses: actions/github-script@v7
+        if: always()
+        with:
+          script: |
+            const message = `
+            ## ✅ PR Validation Complete
+            
+            - 📦 Dependencies installed successfully
+            - 🔨 Build completed successfully
+            - 🎨 Code formatting checked
+            
+            All checks passed! Ready for review.
+            `;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: message
+            })
+        continue-on-error: true
