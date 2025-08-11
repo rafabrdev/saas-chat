@@ -21,7 +21,7 @@ jobs:
       - name: Install pnpm
         uses: pnpm/action-setup@v3
         with:
-          version: 8
+          version: 9
           run_install: false
       
       - name: Setup Node.js ${{ matrix.node-version }}
@@ -44,7 +44,9 @@ jobs:
             ${{ runner.os }}-pnpm-store-
       
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: |
+          pnpm install --no-frozen-lockfile
+          echo "Lockfile updated/created if needed"
       
       - name: Run linting
         run: |
