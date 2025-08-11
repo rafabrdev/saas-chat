@@ -1,21 +1,17 @@
 # Node
 node_modules/
-npm-debug.log
-yarn-error.log
+.pnp.*
+.vscode/
 dist/
 build/
-
-# Python (se usarmos no backend)
-__pycache__/
-*.pyc
-
-# Environment variables
 .env
+.env.local
+.env.*.local
 
-# IDE configs
-.vscode/
-.idea/
+# Docker / local state
+docker-compose.override.yml
+*.log
 
-# System files
+# OS
 .DS_Store
 Thumbs.db
