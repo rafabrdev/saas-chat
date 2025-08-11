@@ -9,10 +9,22 @@
 }
 html, body, #root {
   height: 100%;
+  margin: 0;
+  padding: 0;
 }
+
 body {
   font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
   background: linear-gradient(90deg,#f8fafc 0%, #eef2ff 100%);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+#root {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
 }
 
 /* scrollbar agradável */
@@ -20,13 +32,71 @@ body {
 ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.08); border-radius: 10px;}
 
 .chat-container {
-  max-width: var(--chat-width);
-  margin: 32px auto;
+  width: 100%;
+  height: 100vh;
   background: white;
-  border-radius: 12px;
-  box-shadow: 0 6px 24px rgba(12, 21, 40, 0.08);
   overflow: hidden;
-  display: grid;
-  grid-template-columns: 260px 1fr;
-  min-height: 640px;
+  display: flex;
+}
+
+/* Animações para MessageBubble */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-4px); }
+  75% { transform: translateX(4px); }
+}
+
+@keyframes shake-once {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-2px); }
+  75% { transform: translateX(2px); }
+}
+
+@keyframes slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.3s ease-out;
+}
+
+.animate-shake {
+  animation: shake 0.5s ease-in-out infinite;
+}
+
+.animate-shake-once {
+  animation: shake-once 0.3s ease-in-out;
+}
+
+.animate-slide-up {
+  animation: slide-up 0.3s ease-out;
+}
+
+/* Transição suave para status de mensagem */
+.message-status-transition {
+  transition: all 0.2s ease-in-out;
+}
+
+/* Hover effects para mensagens */
+.message-bubble:hover {
+  transform: scale(1.01);
+  transition: transform 0.2s ease-out;
 }
