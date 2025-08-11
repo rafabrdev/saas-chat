@@ -1,4 +1,6 @@
-import React, { createContext, useContext, useReducer, useEffect } from 'react';
+import React, { useReducer, useEffect } from 'react';
+import socket from '../lib/socket';
+import { AuthContext } from './auth.context';
 
 // Tipos de ações
 const AUTH_ACTIONS = {
@@ -73,10 +75,7 @@ function authReducer(state, action) {
   }
 }
 
-// Context
-const AuthContext = createContext();
-
-// Provider
+// Provider component
 export const AuthProvider = ({ children }) => {
   const [state, dispatch] = useReducer(authReducer, initialState);
 
@@ -117,6 +116,9 @@ export const AuthProvider = ({ children }) => {
   const login = async (email, password) => {
     dispatch({ type: AUTH_ACTIONS.LOGIN_START });
 
+    console.log('Login attempt:', { email, API_BASE });
+    console.log('Request URL:', `${API_BASE}/auth/login`);
+
     try {
       const response = await fetch(`${API_BASE}/auth/login`, {
         method: 'POST',
@@ -125,6 +127,9 @@ export const AuthProvider = ({ children }) => {
         },
         body: JSON.stringify({ email, password }),
       });
+
+      console.log('Response status:', response.status);
+      console.log('Response headers:', response.headers);
 
       const data = await response.json();
 
@@ -143,11 +148,21 @@ export const AuthProvider = ({ children }) => {
 
       return { success: true };
     } catch (error) {
+      console.error('Login error:', error);
+      
+      let errorMessage = 'Erro ao fazer login';
+      
+      if (error.message === 'Failed to fetch') {
+        errorMessage = 'Erro de conexão com o servidor. Verifique se o backend está rodando na porta 3000.';
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
       dispatch({
         type: AUTH_ACTIONS.LOGIN_ERROR,
-        payload: { error: error.message },
+        payload: { error: errorMessage },
       });
-      return { success: false, error: error.message };
+      return { success: false, error: errorMessage };
     }
   };
 
@@ -189,8 +204,18 @@ export const AuthProvider = ({ children }) => {
   };
 
   const logout = () => {
+    // Desconectar o socket
+    if (socket.connected) {
+      socket.disconnect();
+    }
+    
+    // Limpar localStorage
     localStorage.removeItem('chat_token');
     localStorage.removeItem('chat_user');
+    
+    // Limpar auth do socket
+    socket.auth = {};
+    
     dispatch({ type: AUTH_ACTIONS.LOGOUT });
   };
 
@@ -213,11 +238,4 @@ export const AuthProvider = ({ children }) => {
   );
 };
 
-// Hook para usar o contexto
-export const useAuth = () => {
-  const context = useContext(AuthContext);
-  if (!context) {
-    throw new Error('useAuth deve ser usado dentro de AuthProvider');
-  }
-  return context;
-};
+// Hook personalizado para usar o contexto

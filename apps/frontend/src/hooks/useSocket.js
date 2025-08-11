@@ -1,229 +1,216 @@
-// apps/frontend/src/hooks/useSocket.js
-import { useEffect, useState, useCallback, useRef } from 'react';
-import { io } from 'socket.io-client';
-import { useAuth } from '../contexts/AuthContext';
+import { useEffect, useRef, useState, useCallback } from 'react';
+import socket from '../lib/socket';
+import { useToast } from '../components/ui/Toast';
 
-export const useSocket = () => {
-  const { token, isAuthenticated, logout } = useAuth();
-  const [socket, setSocket] = useState(null);
-  const [messages, setMessages] = useState([]);
-  const [connectionStatus, setConnectionStatus] = useState('disconnected');
-  const [error, setError] = useState(null);
-  const [currentThread, setCurrentThread] = useState(null);
-  const [connectedUsers, setConnectedUsers] = useState([]);
-  const [typingUsers, setTypingUsers] = useState([]);
-  const isConnectedRef = useRef(false);
+const CONNECTION_STATES = {
+  DISCONNECTED: 'disconnected',
+  CONNECTING: 'connecting',
+  CONNECTED: 'connected',
+  RECONNECTING: 'reconnecting',
+  ERROR: 'error'
+};
 
-  // Conectar/Desconectar baseado na autenticação
+export function useSocket(options = {}) {
+  const {
+    autoConnect = true,
+    reconnectAttempts = 5,
+    reconnectDelay = 1000,
+    showConnectionStatus = true
+  } = options;
+
+  const [connectionState, setConnectionState] = useState(CONNECTION_STATES.DISCONNECTED);
+  const [reconnectCount, setReconnectCount] = useState(0);
+  const [isOnline, setIsOnline] = useState(navigator.onlineStatus !== false);
+  
+  const toast = useToast();
+  const reconnectTimeoutRef = useRef(null);
+  const reconnectAttemptsRef = useRef(0);
+
+  // Monitor online status
   useEffect(() => {
-    if (isAuthenticated && token) {
-      connectSocket();
-    } else {
-      disconnectSocket();
+    const handleOnline = () => {
+      setIsOnline(true);
+      if (connectionState === CONNECTION_STATES.DISCONNECTED) {
+        connect();
+      }
+    };
+
+    const handleOffline = () => {
+      setIsOnline(false);
+      setConnectionState(CONNECTION_STATES.DISCONNECTED);
+    };
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, [connectionState]);
+
+  const connect = useCallback(() => {
+    if (!isOnline) {
+      if (showConnectionStatus) {
+        toast.warning('Sem conexão com a internet');
+      }
+      return;
+    }
+
+    setConnectionState(CONNECTION_STATES.CONNECTING);
+    socket.connect();
+  }, [isOnline, showConnectionStatus, toast]);
+
+  const disconnect = useCallback(() => {
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
+    }
+    reconnectAttemptsRef.current = 0;
+    setConnectionState(CONNECTION_STATES.DISCONNECTED);
+    socket.disconnect();
+  }, []);
+
+  const scheduleReconnect = useCallback(() => {
+    if (reconnectAttemptsRef.current >= reconnectAttempts || !isOnline) {
+      setConnectionState(CONNECTION_STATES.ERROR);
+      if (showConnectionStatus) {
+        toast.error('Não foi possível conectar. Verifique sua conexão.');
+      }
+      return;
+    }
+
+    reconnectAttemptsRef.current += 1;
+    setReconnectCount(reconnectAttemptsRef.current);
+    setConnectionState(CONNECTION_STATES.RECONNECTING);
+
+    const delay = reconnectDelay * Math.pow(2, reconnectAttemptsRef.current - 1); // Exponential backoff
+    
+    reconnectTimeoutRef.current = setTimeout(() => {
+      if (showConnectionStatus) {
+        toast.info(`Tentativa ${reconnectAttemptsRef.current} de ${reconnectAttempts}...`);
+      }
+      connect();
+    }, delay);
+  }, [reconnectAttempts, isOnline, showConnectionStatus, reconnectDelay, connect, toast]);
+
+  // Socket event listeners
+  useEffect(() => {
+    const handleConnect = () => {
+      reconnectAttemptsRef.current = 0;
+      setReconnectCount(0);
+      setConnectionState(CONNECTION_STATES.CONNECTED);
+      
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
+
+      if (showConnectionStatus) {
+        toast.success('Conectado com sucesso!');
+      }
+    };
+
+    const handleDisconnect = (reason) => {
+      setConnectionState(CONNECTION_STATES.DISCONNECTED);
+      
+      if (showConnectionStatus) {
+        toast.warning('Conexão perdida');
+      }
+
+      // Auto-reconnect unless manually disconnected
+      if (reason !== 'io client disconnect' && isOnline) {
+        scheduleReconnect();
+      }
+    };
+
+    const handleConnectError = (error) => {
+      console.error('Socket connection error:', error);
+      setConnectionState(CONNECTION_STATES.ERROR);
+      
+      if (isOnline) {
+        scheduleReconnect();
+      }
+    };
+
+    const handleReconnect = () => {
+      setConnectionState(CONNECTION_STATES.CONNECTED);
+      reconnectAttemptsRef.current = 0;
+      setReconnectCount(0);
+      
+      if (showConnectionStatus) {
+        toast.success('Reconectado!');
+      }
+    };
+
+    const handleReconnectAttempt = () => {
+      setConnectionState(CONNECTION_STATES.RECONNECTING);
+    };
+
+    socket.on('connect', handleConnect);
+    socket.on('disconnect', handleDisconnect);
+    socket.on('connect_error', handleConnectError);
+    socket.on('reconnect', handleReconnect);
+    socket.on('reconnect_attempt', handleReconnectAttempt);
+
+    return () => {
+      socket.off('connect', handleConnect);
+      socket.off('disconnect', handleDisconnect);
+      socket.off('connect_error', handleConnectError);
+      socket.off('reconnect', handleReconnect);
+      socket.off('reconnect_attempt', handleReconnectAttempt);
+    };
+  }, [isOnline, scheduleReconnect, showConnectionStatus, toast]);
+
+  // Auto-connect on mount
+  useEffect(() => {
+    if (autoConnect && isOnline) {
+      connect();
     }
 
     return () => {
-      disconnectSocket();
-    };
-  }, [isAuthenticated, token]);
-
-  const connectSocket = () => {
-    if (socket?.connected) return;
-
-    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
-    
-    const newSocket = io(API_URL, {
-      auth: {
-        token: token
-      },
-      transports: ['websocket', 'polling'],
-      autoConnect: false,
-    });
-
-    setSocket(newSocket);
-    setupSocketListeners(newSocket);
-    
-    newSocket.connect();
-    setConnectionStatus('connecting');
-  };
-
-  const disconnectSocket = () => {
-    if (socket) {
-      socket.disconnect();
-      setSocket(null);
-    }
-    setConnectionStatus('disconnected');
-    setMessages([]);
-    setCurrentThread(null);
-    setConnectedUsers([]);
-    setTypingUsers([]);
-    isConnectedRef.current = false;
-  };
-
-  const setupSocketListeners = (socketInstance) => {
-    // Conexão estabelecida
-    socketInstance.on('connect', () => {
-      console.log('✅ Socket connected successfully');
-      setConnectionStatus('connected');
-      setError(null);
-      isConnectedRef.current = true;
-    });
-
-    // Desconexão
-    socketInstance.on('disconnect', (reason) => {
-      console.log('❌ Socket disconnected:', reason);
-      setConnectionStatus('disconnected');
-      isConnectedRef.current = false;
-      
-      // Se foi desconectado por erro de auth, fazer logout
-      if (reason === 'io server disconnect') {
-        console.warn('Disconnected by server, possibly due to auth error');
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
       }
-    });
+    };
+  }, [autoConnect, isOnline, connect]);
 
-    // Erro de conexão
-    socketInstance.on('connect_error', (error) => {
-      console.error('Connection error:', error);
-      setConnectionStatus('disconnected');
-      setError('Erro de conexão com o servidor');
-      isConnectedRef.current = false;
-    });
+  // Emit with error handling
+  const emit = useCallback((event, data, callback) => {
+    if (connectionState !== CONNECTION_STATES.CONNECTED) {
+      const error = new Error('Socket não conectado');
+      if (callback) callback(error);
+      return Promise.reject(error);
+    }
 
-    // Erro de autenticação
-    socketInstance.on('auth_error', (data) => {
-      console.error('Authentication error:', data);
-      setError(data.message || 'Erro de autenticação');
-      setConnectionStatus('disconnected');
-      isConnectedRef.current = false;
-      
-      // Fazer logout se token inválido
-      logout();
-    });
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        reject(new Error('Timeout na operação'));
+      }, 10000);
 
-    // Autenticação bem-sucedida
-    socketInstance.on('authenticated', (data) => {
-      console.log('🔐 Authenticated successfully:', data);
-      setCurrentThread(data.threadId);
-      setError(null);
-    });
-
-    // Histórico de mensagens
-    socketInstance.on('history', (history) => {
-      console.log('📜 Received message history:', history?.length || 0, 'messages');
-      setMessages(history || []);
-    });
-
-    // Nova mensagem
-    socketInstance.on('message', (message) => {
-      console.log('💬 New message received:', message);
-      setMessages(prev => {
-        // Evitar duplicação
-        const exists = prev.find(m => m.id === message.id);
-        if (exists) return prev;
-        return [...prev, message];
+      socket.emit(event, data, (response) => {
+        clearTimeout(timeout);
+        if (response && response.error) {
+          reject(new Error(response.error));
+        } else {
+          resolve(response);
+        }
+        if (callback) callback(null, response);
       });
     });
-
-    // Usuário entrou
-    socketInstance.on('user_joined', (data) => {
-      console.log('👋 User joined:', data);
-      setConnectedUsers(prev => {
-        const exists = prev.find(u => u.userId === data.userId);
-        if (exists) return prev;
-        return [...prev, data];
-      });
-    });
-
-    // Usuário saiu
-    socketInstance.on('user_left', (data) => {
-      console.log('👋 User left:', data);
-      setConnectedUsers(prev => prev.filter(u => u.userId !== data.userId));
-      setTypingUsers(prev => prev.filter(u => u.userId !== data.userId));
-    });
-
-    // Usuário digitando
-    socketInstance.on('user_typing', (data) => {
-      setTypingUsers(prev => {
-        const exists = prev.find(u => u.userId === data.userId);
-        if (exists) return prev;
-        return [...prev, data];
-      });
-
-      // Auto-remover após 3 segundos
-      setTimeout(() => {
-        setTypingUsers(prev => prev.filter(u => u.userId !== data.userId));
-      }, 3000);
-    });
-
-    // Usuário parou de digitar
-    socketInstance.on('user_stopped_typing', (data) => {
-      setTypingUsers(prev => prev.filter(u => u.userId !== data.userId));
-    });
-
-    // Erro geral
-    socketInstance.on('error', (data) => {
-      console.error('Socket error:', data);
-      setError(data.message || 'Erro do servidor');
-    });
-  };
-
-  const sendMessage = useCallback((text) => {
-    if (!isConnectedRef.current || !socket) {
-      setError('Não conectado ao servidor');
-      return false;
-    }
-
-    if (!text.trim()) {
-      return false;
-    }
-
-    try {
-      socket.emit('message', { text: text.trim() });
-      return true;
-    } catch (err) {
-      console.error('Error sending message:', err);
-      setError('Erro ao enviar mensagem');
-      return false;
-    }
-  }, [socket]);
-
-  const startTyping = useCallback(() => {
-    if (socket && isConnectedRef.current) {
-      socket.emit('typing');
-    }
-  }, [socket]);
-
-  const stopTyping = useCallback(() => {
-    if (socket && isConnectedRef.current) {
-      socket.emit('stop_typing');
-    }
-  }, [socket]);
-
-  const clearError = useCallback(() => {
-    setError(null);
-  }, []);
-
-  const retryConnection = useCallback(() => {
-    if (isAuthenticated && token) {
-      disconnectSocket();
-      setTimeout(() => {
-        connectSocket();
-      }, 1000);
-    }
-  }, [isAuthenticated, token]);
+  }, [connectionState]);
 
   return {
-    messages,
-    connectionStatus,
-    error,
-    currentThread,
-    connectedUsers,
-    typingUsers,
-    sendMessage,
-    startTyping,
-    stopTyping,
-    clearError,
-    retryConnection,
-    isConnected: connectionStatus === 'connected',
+    socket,
+    connectionState,
+    isConnected: connectionState === CONNECTION_STATES.CONNECTED,
+    isConnecting: connectionState === CONNECTION_STATES.CONNECTING,
+    isReconnecting: connectionState === CONNECTION_STATES.RECONNECTING,
+    reconnectCount,
+    connect,
+    disconnect,
+    emit
   };
-};
+}
+
+export { CONNECTION_STATES };
