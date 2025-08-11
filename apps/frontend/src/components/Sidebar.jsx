@@ -1,6 +1,6 @@
 import { ChatBubbleLeftRightIcon, Cog6ToothIcon, ArrowLeftOnRectangleIcon } from "@heroicons/react/24/outline";
 import React from "react";
-import { useAuth } from "../hooks/useAuth";
+import { useAuth } from "../hooks/useAuth.js";
 
 export default function Sidebar() {
   const { logout } = useAuth();

@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { useAuth } from './hooks/useAuth';
+import { useAuth } from './hooks/useAuth.js';
 import { AuthProvider } from './components/providers/AuthProvider';
 import { ToastProvider } from './components/ui/Toast';
 import AuthPage from './components/AuthPage';
