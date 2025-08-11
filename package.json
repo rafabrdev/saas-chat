@@ -1,17 +1,40 @@
 {
   "name": "saas-chat",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "workspaces": [
     "apps/*",
     "packages/*"
   ],
   "scripts": {
     "dev:frontend": "pnpm --filter @app-frontend dev",
-    "dev:backend": "pnpm --filter @app-backend start:dev"
+    "dev:backend": "pnpm --filter @app-backend start:dev",
+    "dev": "concurrently \"pnpm dev:backend\" \"pnpm dev:frontend\"",
+    "build": "pnpm -w -r build",
+    "lint": "pnpm -w -r lint",
+    "test": "pnpm -w -r test",
+    "format": "prettier --write ."
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "packageManager": "pnpm@10.14.0"
+  "devDependencies": {
+    "@commitlint/cli": "^19.8.1",
+    "@commitlint/config-conventional": "^17.8.1",
+    "commitlint": "^17.8.1",
+    "concurrently": "^8.2.2",
+    "eslint": "^9.33.0",
+    "husky": "^8.0.3",
+    "lint-staged": "^13.3.0",
+    "prettier": "^2.8.8"
+  },
+  "lint-staged": {
+  "*.{js,ts,tsx,jsx}": [
+    "pnpm -w lint --filter @app-frontend --silent || true",
+    "pnpm -w lint --filter @app-backend --silent || true",
+    "git add"
+  ],
+  "*.{json,md,css,scss}": [
+    "prettier --write",
+    "git add"
+  ]
+}
+
 }
