@@ -1,7 +1,9 @@
+// apps/frontend/src/components/ChatWindow.jsx
 import React, { useEffect, useRef } from 'react';
 import { useSocket } from '../hooks/useSocket';
 import MessageBubble from './MessageBubble';
 import Composer from './Composer';
+import ChatHeader from './ChatHeader';
 import ConnectionStatus from './ConnectionStatus';
 import LoadingSpinner from './LoadingSpinner';
 
@@ -10,8 +12,13 @@ export default function ChatWindow() {
     messages, 
     connectionStatus, 
     error, 
+    connectedUsers,
+    typingUsers,
     sendMessage, 
+    startTyping,
+    stopTyping,
     clearError, 
+    retryConnection,
     isConnected 
   } = useSocket();
   
@@ -41,33 +48,24 @@ export default function ChatWindow() {
     }
   };
 
-  const handleRetryConnection = () => {
-    clearError();
-    // O socket tentará reconectar automaticamente
-  };
-
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <header className="px-6 py-4 border-b flex items-center justify-between bg-white">
-        <div>
-          <div className="text-sm text-slate-500">Atendimento</div>
-          <div className="font-semibold">Suporte — BR Sistemas</div>
-        </div>
-        
-        <div className="flex items-center gap-3">
+      <ChatHeader 
+        connectionStatus={connectionStatus}
+        onlineUsersCount={connectedUsers.length}
+      />
+
+      {/* Status de erro */}
+      {error && (
+        <div className="px-6 py-2">
           <ConnectionStatus 
             status={connectionStatus} 
             error={error} 
-            onRetry={handleRetryConnection}
+            onRetry={retryConnection}
           />
-          <div className={`text-xs px-2 py-1 rounded-full ${
-            isConnected ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
-          }`}>
-            {isConnected ? 'Online' : 'Offline'}
-          </div>
         </div>
-      </header>
+      )}
 
       {/* Messages Area */}
       <main 
@@ -75,6 +73,7 @@ export default function ChatWindow() {
         className="p-6 overflow-y-auto flex-1 bg-gradient-to-b from-gray-50 to-gray-100"
       >
         <div className="max-w-4xl mx-auto">
+          {/* Loading state */}
           {connectionStatus === 'connecting' && messages.length === 0 && (
             <div className="flex flex-col items-center justify-center py-12">
               <LoadingSpinner size="lg" />
@@ -82,6 +81,7 @@ export default function ChatWindow() {
             </div>
           )}
 
+          {/* Empty state */}
           {messages.length === 0 && connectionStatus === 'connected' && (
             <div className="flex flex-col items-center justify-center py-12">
               <div className="w-16 h-16 rounded-full bg-blue-100 flex items-center justify-center mb-4">
@@ -96,6 +96,7 @@ export default function ChatWindow() {
             </div>
           )}
 
+          {/* Messages */}
           {messages.map((message) => (
             <MessageBubble 
               key={message.id} 
@@ -103,12 +104,35 @@ export default function ChatWindow() {
               isOwn={message.sender === 'user' || message.sender === 'me'} 
             />
           ))}
+
+          {/* Typing indicators */}
+          {typingUsers.length > 0 && (
+            <div className="flex items-center gap-3 mb-4 max-w-[80%]">
+              <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center">
+                <div className="w-4 h-4 text-gray-500">...</div>
+              </div>
+              <div className="px-4 py-2 bg-gray-100 rounded-2xl">
+                <div className="flex items-center gap-1">
+                  <span className="text-sm text-gray-600">
+                    {typingUsers.map(u => u.userName).join(', ')} está digitando
+                  </span>
+                  <div className="flex gap-1">
+                    <div className="w-1 h-1 bg-gray-400 rounded-full animate-pulse" />
+                    <div className="w-1 h-1 bg-gray-400 rounded-full animate-pulse delay-100" />
+                    <div className="w-1 h-1 bg-gray-400 rounded-full animate-pulse delay-200" />
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </main>
 
       {/* Composer */}
       <Composer 
         onSend={handleSend} 
+        onStartTyping={startTyping}
+        onStopTyping={stopTyping}
         disabled={!isConnected}
         placeholder={isConnected ? "Digite sua mensagem..." : "Conectando..."}
       />

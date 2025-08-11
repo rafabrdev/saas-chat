@@ -1,92 +1,174 @@
+// apps/frontend/src/hooks/useSocket.js
 import { useEffect, useState, useCallback, useRef } from 'react';
-import socket from '../lib/socket';
+import { io } from 'socket.io-client';
+import { useAuth } from '../contexts/AuthContext';
 
 export const useSocket = () => {
+  const { token, isAuthenticated, logout } = useAuth();
+  const [socket, setSocket] = useState(null);
   const [messages, setMessages] = useState([]);
   const [connectionStatus, setConnectionStatus] = useState('disconnected');
   const [error, setError] = useState(null);
   const [currentThread, setCurrentThread] = useState(null);
+  const [connectedUsers, setConnectedUsers] = useState([]);
+  const [typingUsers, setTypingUsers] = useState([]);
   const isConnectedRef = useRef(false);
 
+  // Conectar/Desconectar baseado na autenticação
   useEffect(() => {
-    // Conectar socket
-    socket.connect();
-    setConnectionStatus('connecting');
+    if (isAuthenticated && token) {
+      connectSocket();
+    } else {
+      disconnectSocket();
+    }
 
-    // Listeners
-    const onConnect = () => {
-      console.log('✅ Socket connected');
+    return () => {
+      disconnectSocket();
+    };
+  }, [isAuthenticated, token]);
+
+  const connectSocket = () => {
+    if (socket?.connected) return;
+
+    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+    
+    const newSocket = io(API_URL, {
+      auth: {
+        token: token
+      },
+      transports: ['websocket', 'polling'],
+      autoConnect: false,
+    });
+
+    setSocket(newSocket);
+    setupSocketListeners(newSocket);
+    
+    newSocket.connect();
+    setConnectionStatus('connecting');
+  };
+
+  const disconnectSocket = () => {
+    if (socket) {
+      socket.disconnect();
+      setSocket(null);
+    }
+    setConnectionStatus('disconnected');
+    setMessages([]);
+    setCurrentThread(null);
+    setConnectedUsers([]);
+    setTypingUsers([]);
+    isConnectedRef.current = false;
+  };
+
+  const setupSocketListeners = (socketInstance) => {
+    // Conexão estabelecida
+    socketInstance.on('connect', () => {
+      console.log('✅ Socket connected successfully');
       setConnectionStatus('connected');
       setError(null);
       isConnectedRef.current = true;
-    };
+    });
 
-    const onDisconnect = () => {
-      console.log('❌ Socket disconnected');
+    // Desconexão
+    socketInstance.on('disconnect', (reason) => {
+      console.log('❌ Socket disconnected:', reason);
       setConnectionStatus('disconnected');
       isConnectedRef.current = false;
-    };
+      
+      // Se foi desconectado por erro de auth, fazer logout
+      if (reason === 'io server disconnect') {
+        console.warn('Disconnected by server, possibly due to auth error');
+      }
+    });
 
-    const onError = (errorData) => {
-      console.error('Socket error:', errorData);
-      setError(errorData.message || 'Erro de conexão');
-    };
-
-    const onConnected = (data) => {
-      console.log('Connected to company:', data);
-      setCurrentThread(data.threadId);
-    };
-
-    const onHistory = (history) => {
-      console.log('Received history:', history?.length || 0, 'messages');
-      setMessages(history || []);
-    };
-
-    const onMessage = (message) => {
-      console.log('New message received:', message);
-      setMessages(prev => {
-        // Evitar duplicação
-        const exists = prev.find(m => m.id === message.id);
-        if (exists) return prev;
-        return [...prev, message];
-      });
-    };
-
-    const onReceiveMessage = (message) => {
-      console.log('Received message:', message);
-      setMessages(prev => {
-        // Evitar duplicação
-        const exists = prev.find(m => m.id === message.id);
-        if (exists) return prev;
-        return [...prev, message];
-      });
-    };
-
-    // Registrar listeners
-    socket.on('connect', onConnect);
-    socket.on('disconnect', onDisconnect);
-    socket.on('error', onError);
-    socket.on('connected', onConnected);
-    socket.on('history', onHistory);
-    socket.on('message', onMessage);
-    socket.on('receiveMessage', onReceiveMessage);
-
-    // Cleanup
-    return () => {
-      socket.off('connect', onConnect);
-      socket.off('disconnect', onDisconnect);
-      socket.off('error', onError);
-      socket.off('connected', onConnected);
-      socket.off('history', onHistory);
-      socket.off('message', onMessage);
-      socket.off('receiveMessage', onReceiveMessage);
-      socket.disconnect();
+    // Erro de conexão
+    socketInstance.on('connect_error', (error) => {
+      console.error('Connection error:', error);
+      setConnectionStatus('disconnected');
+      setError('Erro de conexão com o servidor');
       isConnectedRef.current = false;
-    };
-  }, []);
+    });
+
+    // Erro de autenticação
+    socketInstance.on('auth_error', (data) => {
+      console.error('Authentication error:', data);
+      setError(data.message || 'Erro de autenticação');
+      setConnectionStatus('disconnected');
+      isConnectedRef.current = false;
+      
+      // Fazer logout se token inválido
+      logout();
+    });
+
+    // Autenticação bem-sucedida
+    socketInstance.on('authenticated', (data) => {
+      console.log('🔐 Authenticated successfully:', data);
+      setCurrentThread(data.threadId);
+      setError(null);
+    });
+
+    // Histórico de mensagens
+    socketInstance.on('history', (history) => {
+      console.log('📜 Received message history:', history?.length || 0, 'messages');
+      setMessages(history || []);
+    });
+
+    // Nova mensagem
+    socketInstance.on('message', (message) => {
+      console.log('💬 New message received:', message);
+      setMessages(prev => {
+        // Evitar duplicação
+        const exists = prev.find(m => m.id === message.id);
+        if (exists) return prev;
+        return [...prev, message];
+      });
+    });
+
+    // Usuário entrou
+    socketInstance.on('user_joined', (data) => {
+      console.log('👋 User joined:', data);
+      setConnectedUsers(prev => {
+        const exists = prev.find(u => u.userId === data.userId);
+        if (exists) return prev;
+        return [...prev, data];
+      });
+    });
+
+    // Usuário saiu
+    socketInstance.on('user_left', (data) => {
+      console.log('👋 User left:', data);
+      setConnectedUsers(prev => prev.filter(u => u.userId !== data.userId));
+      setTypingUsers(prev => prev.filter(u => u.userId !== data.userId));
+    });
+
+    // Usuário digitando
+    socketInstance.on('user_typing', (data) => {
+      setTypingUsers(prev => {
+        const exists = prev.find(u => u.userId === data.userId);
+        if (exists) return prev;
+        return [...prev, data];
+      });
+
+      // Auto-remover após 3 segundos
+      setTimeout(() => {
+        setTypingUsers(prev => prev.filter(u => u.userId !== data.userId));
+      }, 3000);
+    });
+
+    // Usuário parou de digitar
+    socketInstance.on('user_stopped_typing', (data) => {
+      setTypingUsers(prev => prev.filter(u => u.userId !== data.userId));
+    });
+
+    // Erro geral
+    socketInstance.on('error', (data) => {
+      console.error('Socket error:', data);
+      setError(data.message || 'Erro do servidor');
+    });
+  };
 
   const sendMessage = useCallback((text) => {
-    if (!isConnectedRef.current) {
+    if (!isConnectedRef.current || !socket) {
       setError('Não conectado ao servidor');
       return false;
     }
@@ -96,7 +178,6 @@ export const useSocket = () => {
     }
 
     try {
-      // Usar o evento 'message' que o backend espera
       socket.emit('message', { text: text.trim() });
       return true;
     } catch (err) {
@@ -104,19 +185,45 @@ export const useSocket = () => {
       setError('Erro ao enviar mensagem');
       return false;
     }
-  }, []);
+  }, [socket]);
+
+  const startTyping = useCallback(() => {
+    if (socket && isConnectedRef.current) {
+      socket.emit('typing');
+    }
+  }, [socket]);
+
+  const stopTyping = useCallback(() => {
+    if (socket && isConnectedRef.current) {
+      socket.emit('stop_typing');
+    }
+  }, [socket]);
 
   const clearError = useCallback(() => {
     setError(null);
   }, []);
+
+  const retryConnection = useCallback(() => {
+    if (isAuthenticated && token) {
+      disconnectSocket();
+      setTimeout(() => {
+        connectSocket();
+      }, 1000);
+    }
+  }, [isAuthenticated, token]);
 
   return {
     messages,
     connectionStatus,
     error,
     currentThread,
+    connectedUsers,
+    typingUsers,
     sendMessage,
+    startTyping,
+    stopTyping,
     clearError,
+    retryConnection,
     isConnected: connectionStatus === 'connected',
   };
 };
