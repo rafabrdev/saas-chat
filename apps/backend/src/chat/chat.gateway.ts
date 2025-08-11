@@ -5,7 +5,6 @@ import {
   OnGatewayConnection,
   OnGatewayDisconnect,
   MessageBody,
-  ConnectedSocket,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 
@@ -34,7 +33,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @SubscribeMessage('message')
   handleMessage(
     @MessageBody() data: { text: string },
-    @ConnectedSocket() client: Socket,
   ) {
     const message = {
       id: Date.now().toString(),
@@ -55,7 +53,6 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @SubscribeMessage('sendMessage')
   handleSendMessage(
     @MessageBody() data: { sender: string; text: string },
-    @ConnectedSocket() client: Socket,
   ) {
     const message = {
       id: Date.now().toString(),
