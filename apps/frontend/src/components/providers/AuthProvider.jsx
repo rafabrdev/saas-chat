@@ -1,6 +1,8 @@
-import React, { useReducer, useEffect } from 'react';
+import React, { createContext, useReducer, useEffect } from 'react';
 import socket from '../../lib/socket';
-import { AuthContext } from '../../contexts/auth.context';
+
+// Create the AuthContext
+export const AuthContext = createContext(null);
 
 // Tipos de ações
 const AUTH_ACTIONS = {
