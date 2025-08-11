@@ -7,12 +7,12 @@
     "packages/*"
   ],
   "scripts": {
-    "dev:frontend": "pnpm --filter @app-frontend dev",
-    "dev:backend": "pnpm --filter @app-backend start:dev",
+    "dev:frontend": "pnpm --filter @saas-chat/frontend dev",
+    "dev:backend": "pnpm --filter @saas-chat/backend start:dev",
     "dev": "concurrently \"pnpm dev:backend\" \"pnpm dev:frontend\"",
-    "build": "pnpm -w -r build",
-    "lint": "pnpm -w -r lint",
-    "test": "pnpm -w -r test",
+    "build": "pnpm -r --filter=@saas-chat/* build",
+    "lint": "pnpm -r --filter=@saas-chat/* lint",
+    "test": "pnpm -r --filter=@saas-chat/* test",
     "format": "prettier --write ."
   },
   "devDependencies": {
@@ -26,15 +26,14 @@
     "prettier": "^2.8.8"
   },
   "lint-staged": {
-  "*.{js,ts,tsx,jsx}": [
-    "pnpm -w lint --filter @app-frontend --silent || true",
-    "pnpm -w lint --filter @app-backend --silent || true",
-    "git add"
-  ],
-  "*.{json,md,css,scss}": [
-    "prettier --write",
-    "git add"
-  ]
-}
-
+    "*.{js,ts,tsx,jsx}": [
+      "pnpm -w lint --filter @saas-chat/frontend --silent || true",
+      "pnpm -w lint --filter @saas-chat/backend --silent || true",
+      "git add"
+    ],
+    "*.{json,md,css,scss}": [
+      "prettier --write",
+      "git add"
+    ]
+  }
 }

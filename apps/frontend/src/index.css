@@ -1,0 +1,32 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --chat-width: 920px;
+}
+html, body, #root {
+  height: 100%;
+}
+body {
+  font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+  background: linear-gradient(90deg,#f8fafc 0%, #eef2ff 100%);
+}
+
+/* scrollbar agradável */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.08); border-radius: 10px;}
+
+.chat-container {
+  max-width: var(--chat-width);
+  margin: 32px auto;
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 6px 24px rgba(12, 21, 40, 0.08);
+  overflow: hidden;
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  min-height: 640px;
+}
