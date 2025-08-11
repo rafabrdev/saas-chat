@@ -56,24 +56,33 @@ export class MessageService {
 
   // Criar ou buscar um thread padrão
   async getOrCreateDefaultThread(companyId: string) {
-    let thread = await this.prisma.thread.findFirst({
-      where: {
-        companyId,
-        subject: 'Chat Geral',
-      },
-    });
-
-    if (!thread) {
-      thread = await this.prisma.thread.create({
-        data: {
+    try {
+      let thread = await this.prisma.thread.findFirst({
+        where: {
           companyId,
           subject: 'Chat Geral',
-          status: 'active',
-          createdAt: new Date(),
         },
       });
-    }
 
-    return thread;
+      if (!thread) {
+        console.log(`Creating new thread for company: ${companyId}`);
+        thread = await this.prisma.thread.create({
+          data: {
+            companyId,
+            subject: 'Chat Geral',
+            status: 'active',
+            createdAt: new Date(),
+          },
+        });
+        console.log(`Thread created with ID: ${thread.id}`);
+      } else {
+        console.log(`Found existing thread: ${thread.id}`);
+      }
+
+      return thread;
+    } catch (error) {
+      console.error('Error in getOrCreateDefaultThread:', error);
+      throw error;
+    }
   }
 }
