@@ -13,17 +13,31 @@
     "build": "pnpm -r --filter=@saas-chat/* build",
     "lint": "pnpm -r --filter=@saas-chat/* lint",
     "test": "pnpm -r --filter=@saas-chat/* test",
-    "format": "prettier --write ."
+    "test:backend": "pnpm --filter @saas-chat/backend test",
+    "test:frontend": "pnpm --filter @saas-chat/frontend test",
+    "test:e2e": "pnpm --filter @saas-chat/backend test:e2e",
+    "test:coverage": "pnpm -r --filter=@saas-chat/* test:coverage",
+    "format": "prettier --write .",
+    "setup": "chmod +x scripts/setup-dev.sh && ./scripts/setup-dev.sh",
+    "docker:up": "docker-compose up -d",
+    "docker:down": "docker-compose down",
+    "docker:logs": "docker-compose logs -f",
+    "db:studio": "pnpm --filter @saas-chat/backend db:studio",
+    "db:reset": "pnpm --filter @saas-chat/backend db:reset",
+    "db:migrate": "pnpm --filter @saas-chat/backend db:migrate",
+    "clean": "pnpm -r exec rm -rf node_modules dist coverage .next .turbo && rm -rf node_modules"
   },
   "devDependencies": {
     "@commitlint/cli": "^19.8.1",
     "@commitlint/config-conventional": "^17.8.1",
+    "@vitest/ui": "^3.2.4",
     "commitlint": "^17.8.1",
     "concurrently": "^8.2.2",
     "eslint": "^9.33.0",
     "husky": "^8.0.3",
     "lint-staged": "^13.3.0",
-    "prettier": "^2.8.8"
+    "prettier": "^2.8.8",
+    "vitest": "^3.2.4"
   },
   "lint-staged": {
     "*.{js,ts,tsx,jsx}": [
