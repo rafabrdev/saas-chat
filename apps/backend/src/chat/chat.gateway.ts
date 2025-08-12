@@ -121,34 +121,44 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
       }
 
       // Save message to database
-      const message = await this.chatService.createMessage({
-        threadId,
-        senderType: 'user',
-        senderId: user.id,
-        content: data.text,
-      });
+      if (threadId) { // Adiciona verificação para garantir que threadId não é undefined
+        const message = await this.chatService.createMessage({
+          threadId,
+          senderType: 'user',
+          senderId: user.id,
+          content: data.text,
+        });
 
-      const enrichedMessage = {
-        id: message.id,
-        text: message.content,
-        sender: 'user',
-        senderName: user.name,
-        senderId: user.id,
-        threadId: message.threadId,
-        createdAt: message.createdAt.toISOString(),
-      };
+        const enrichedMessage = {
+          id: message.id,
+          text: message.content,
+          sender: 'user',
+          senderName: user.name,
+          senderId: user.id,
+          threadId: message.threadId,
+          createdAt: message.createdAt.toISOString(),
+        };
 
-      // Broadcast to company room
-      this.server.to(`company:${user.companyId}`).emit('message', enrichedMessage);
+        // Broadcast to company room
+        this.server.to(`company:${user.companyId}`).emit('message', enrichedMessage);
 
-      // Send confirmation to sender with threadId
-      client.emit('messageDelivered', { 
-        tempId: data.tempId, 
-        message: enrichedMessage,
-        threadId: threadId // Incluir threadId na resposta
-      });
+        // Send confirmation to sender with threadId
+        client.emit('messageDelivered', { 
+          tempId: data.tempId, 
+          message: enrichedMessage,
+          threadId: threadId // Incluir threadId na resposta
+        });
 
-      return { success: true, message: enrichedMessage, threadId };
+        return { success: true, message: enrichedMessage, threadId };
+      } else {
+        // Lidar com o caso onde o threadId é undefined
+        const errorMessage = 'Ocorreu um erro ao obter ou criar o chat. Tente novamente.';
+        this.logger.error(errorMessage);
+        client.emit('messageError', { 
+          message: errorMessage,
+          tempId: data.tempId 
+        });
+      }
     } catch (error) {
       this.logger.error(`Send message error: ${error.message}`);
       client.emit('messageError', { 
