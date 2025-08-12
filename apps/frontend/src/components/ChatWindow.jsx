@@ -12,6 +12,7 @@ export default function ChatWindow() {
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
   const [hasMore, setHasMore] = useState(true);
   const [page, setPage] = useState(0);
+  const [currentThreadId, setCurrentThreadId] = useState(null);
   
   const listRef = useRef();
   const lastMessageRef = useRef();
@@ -147,8 +148,13 @@ export default function ChatWindow() {
     try {
       const response = await emit("sendMessage", { 
         text: text.trim(),
-        threadId: 'default-thread' // TODO: usar thread ID real
+        threadId: currentThreadId // Usa o threadId atual se existir
       });
+
+      // Salva o threadId retornado pelo backend
+      if (response?.threadId && !currentThreadId) {
+        setCurrentThreadId(response.threadId);
+      }
 
       // Replace optimistic message with real one
       setMessages(prev => 
@@ -187,7 +193,7 @@ export default function ChatWindow() {
       );
       toast.error('Falha ao enviar mensagem');
     }
-  }, [isConnected, emit, scrollToBottom, toast]);
+  }, [isConnected, emit, scrollToBottom, toast, currentThreadId]);
 
   // Retry failed message
   const handleRetry = useCallback(async (message) => {
@@ -203,8 +209,13 @@ export default function ChatWindow() {
     try {
       const response = await emit("sendMessage", { 
         text: message.text,
-        threadId: 'default-thread'
+        threadId: currentThreadId // Usa o threadId atual se existir
       });
+
+      // Salva o threadId retornado pelo backend
+      if (response?.threadId && !currentThreadId) {
+        setCurrentThreadId(response.threadId);
+      }
 
       // Replace with successful message
       setMessages(prev => 
@@ -236,7 +247,7 @@ export default function ChatWindow() {
       );
       toast.error('Falha ao reenviar mensagem');
     }
-  }, [emit, toast]);
+  }, [emit, toast, currentThreadId]);
 
   // Load more messages (pagination)
   const handleLoadMore = useCallback(() => {

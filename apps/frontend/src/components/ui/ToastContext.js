@@ -21,12 +21,13 @@ export const ToastContext = createContext();
 // Toast reducer
 export function toastReducer(state, action) {
   switch (action.type) {
-    case TOAST_ACTIONS.ADD_TOAST:
+    case TOAST_ACTIONS.ADD_TOAST: {
       const newToast = {
         ...action.payload,
         id: Date.now() + Math.random()
       };
       return [...state, newToast];
+    }
     
     case TOAST_ACTIONS.REMOVE_TOAST:
       return state.filter(toast => toast.id !== action.payload);

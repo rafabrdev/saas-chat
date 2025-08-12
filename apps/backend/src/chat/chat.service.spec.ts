@@ -5,7 +5,7 @@ import { mockPrisma } from '../../test/setup';
 
 describe('ChatService', () => {
   let service: ChatService;
-  let prismaService: jest.Mocked<PrismaService>;
+  let prismaService: any;
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -96,6 +96,8 @@ describe('ChatService', () => {
       expect(prismaService.message.findMany).toHaveBeenCalledWith({
         where: { threadId: 'thread1' },
         orderBy: { createdAt: 'asc' },
+        take: 50,
+        skip: 0,
       });
     });
   });

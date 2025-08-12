@@ -21,7 +21,61 @@ export interface CreateThreadDto {
 export class ChatService {
   constructor(private prisma: PrismaService) {}
 
+  async getOrCreateDemoCompany() {
+    let company = await this.prisma.company.findFirst({
+      where: { name: 'BR Sistemas - Demo' },
+    });
+
+    if (!company) {
+      company = await this.prisma.company.create({
+        data: {
+          name: 'BR Sistemas - Demo',
+          plan: 'ESSENTIAL',
+        },
+      });
+    }
+
+    return company;
+  }
+
+  async getOrCreateActiveThread(companyId: string, userId: string) {
+    // Primeiro tenta encontrar um thread ativo existente
+    let thread = await this.prisma.thread.findFirst({
+      where: {
+        companyId,
+        status: { in: ['new', 'open'] },
+      },
+      orderBy: {
+        lastActivity: 'desc',
+      },
+    });
+
+    // Se não encontrar, cria um novo thread
+    if (!thread) {
+      thread = await this.prisma.thread.create({
+        data: {
+          companyId,
+          status: 'new',
+          subject: 'Chat Conversation',
+          createdBy: userId,
+          lastActivity: new Date(),
+        },
+      });
+    }
+
+    return thread;
+  }
+
   async createMessage(data: CreateMessageDto) {
+    // Verificar se o thread existe
+    const thread = await this.prisma.thread.findUnique({
+      where: { id: data.threadId },
+    });
+
+    if (!thread) {
+      throw new Error(`Thread com ID ${data.threadId} não encontrado`);
+    }
+
     const message = await this.prisma.message.create({
       data: {
         threadId: data.threadId,
@@ -52,6 +106,17 @@ export class ChatService {
   }
 
   async createThread(data: CreateThreadDto) {
+    // Verificar se a empresa existe
+    const company = await this.prisma.company.findUnique({
+      where: { id: data.companyId },
+    });
+
+    if (!company) {
+      // Se não existir, usar empresa demo
+      const demoCompany = await this.getOrCreateDemoCompany();
+      data.companyId = demoCompany.id;
+    }
+
     return this.prisma.thread.create({
       data: {
         companyId: data.companyId,

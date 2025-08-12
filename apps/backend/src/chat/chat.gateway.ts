@@ -8,34 +8,20 @@ import {
   ConnectedSocket,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
-import { MessageService } from './message.service';
-import { CompanyService } from './company.service';
-import { Logger, UnauthorizedException } from '@nestjs/common';
-import { JwtService } from '@nestjs/jwt';
+import { Logger } from '@nestjs/common';
+import { ChatService } from './chat.service';
 
-interface AuthenticatedSocket extends Socket {
-  user?: {
-    id: string;
-    email: string;
-    companyId: string;
-    role: string;
-    name: string;
-  };
-}
-
-interface ChatMessage {
+interface ConnectedUser {
   id: string;
-  text: string;
-  sender: string;
-  senderType: 'agent' | 'contact';
-  senderName: string;
-  createdAt: string;
-  threadId: string;
+  socketId: string;
+  name?: string;
+  companyId?: string;
+  connectedAt: Date;
 }
 
 @WebSocketGateway({
   cors: {
-    origin: process.env.FRONTEND_ORIGIN || ['http://localhost:5173', 'http://localhost:5174'],
+    origin: process.env.FRONTEND_ORIGIN || 'http://localhost:5173',
     credentials: true,
   },
 })
@@ -44,280 +30,301 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
   server: Server;
 
   private readonly logger = new Logger(ChatGateway.name);
-  private connectedUsers = new Map<string, AuthenticatedSocket['user'] & { socketId: string }>();
+  private connectedUsers = new Map<string, ConnectedUser>();
+  private userSockets = new Map<string, string>(); // userId -> socketId
 
-  constructor(
-    private messageService: MessageService,
-    private companyService: CompanyService,
-    private jwtService: JwtService,
-  ) {}
+  constructor(private readonly chatService: ChatService) {}
 
-  async handleConnection(client: AuthenticatedSocket) {
-    this.logger.log(`🔌 Client attempting to connect: ${client.id}`);
-
+  async handleConnection(client: Socket) {
+    this.logger.log(`Client connected: ${client.id}`);
+    
     try {
-      // Extrair token do handshake
-      const token = this.extractTokenFromSocket(client);
+      // TODO: Implementar autenticação JWT do socket
+      const userId = client.handshake.query.userId as string || `anonymous-${Date.now()}`;
+      let companyId = client.handshake.query.companyId as string;
       
-      if (!token) {
-        this.logger.warn('No token provided');
-        client.emit('auth_error', { message: 'Token de autenticação necessário' });
-        client.disconnect();
-        return;
+      // Se não tiver companyId, buscar ou criar empresa demo
+      if (!companyId) {
+        const demoCompany = await this.chatService.getOrCreateDemoCompany();
+        companyId = demoCompany.id;
       }
-
-      // Verificar e decodificar token
-      const payload = this.jwtService.verify(token);
-      const user = {
-        id: payload.sub,
-        email: payload.email,
-        companyId: payload.companyId,
-        role: payload.role,
-        name: payload.name || 'Usuário',
+      
+      const user: ConnectedUser = {
+        id: userId,
+        socketId: client.id,
+        name: `User ${userId}`,
+        companyId,
+        connectedAt: new Date(),
       };
 
-      client.user = user;
-      
-      // Adicionar à lista de usuários conectados
-      this.connectedUsers.set(client.id, { 
-        ...user,
-        socketId: client.id 
-      });
+      this.connectedUsers.set(client.id, user);
+      this.userSockets.set(userId, client.id);
 
-      this.logger.log(`✅ User authenticated: ${user.email} (${user.role})`);
+      // Join company room
+      client.join(`company:${companyId}`);
 
-      // Buscar thread padrão da empresa
-      const defaultThread = await this.messageService.getOrCreateDefaultThread(user.companyId);
-      
-      // Enviar histórico de mensagens
-      const messages = await this.messageService.getMessagesByThread(defaultThread.id);
-      
-      const formattedMessages = messages.map(msg => ({
-        id: msg.id,
-        text: msg.content || '',
-        sender: msg.senderType === 'agent' ? 'agent' : 'user',
-        senderType: msg.senderType,
-        senderName: msg.senderId || 'Usuário',
-        createdAt: msg.createdAt.toISOString(),
-        threadId: msg.threadId,
-      }));
+      // Send message history
+      await this.sendMessageHistory(client, companyId);
 
-      client.emit('history', formattedMessages);
-      client.emit('authenticated', { 
-        user: user,
-        companyId: user.companyId, 
-        threadId: defaultThread.id 
-      });
-      
-      // Notificar outros usuários da mesma empresa
-      this.notifyCompanyUsers(user.companyId, 'user_joined', {
-        userId: user.id,
-        userName: user.name,
-        userRole: user.role,
-      }, client.id);
+      // Broadcast user connected
+      this.broadcastUserList(companyId);
 
+      client.emit('connected', { userId, socketId: client.id });
     } catch (error) {
-      this.logger.error('Authentication error:', error.message);
-      client.emit('auth_error', { message: 'Token inválido ou expirado' });
+      this.logger.error(`Connection error: ${error.message}`);
+      client.emit('connectionError', { message: 'Failed to establish connection' });
       client.disconnect();
     }
   }
 
-  async handleDisconnect(client: AuthenticatedSocket) {
-    this.logger.log(`❌ Client disconnected: ${client.id}`);
+  handleDisconnect(client: Socket) {
+    this.logger.log(`Client disconnected: ${client.id}`);
     
     const user = this.connectedUsers.get(client.id);
     if (user) {
-      // Notificar outros usuários da mesma empresa
-      this.notifyCompanyUsers(user.companyId, 'user_left', {
-        userId: user.id,
-        userName: user.name,
-        userRole: user.role,
-      }, client.id);
-      
       this.connectedUsers.delete(client.id);
-    }
-  }
-
-  @SubscribeMessage('getHistory')
-  async handleGetHistory(
-    @MessageBody() data: { page?: number; limit?: number },
-    @ConnectedSocket() client: AuthenticatedSocket,
-  ) {
-    try {
-      if (!client.user) {
-        return { error: 'Usuário não autenticado' };
+      this.userSockets.delete(user.id);
+      
+      // Broadcast updated user list
+      if (user.companyId) {
+        this.broadcastUserList(user.companyId);
       }
-
-      const page = data?.page || 0;
-      const limit = data?.limit || 50;
-      
-      // Buscar thread padrão da empresa
-      const defaultThread = await this.messageService.getOrCreateDefaultThread(client.user.companyId);
-      
-      // Buscar mensagens
-      const messages = await this.messageService.getMessagesByThread(defaultThread.id);
-      
-      // Formatar mensagens
-      const formattedMessages = messages.map(msg => ({
-        id: msg.id,
-        text: msg.content || '',
-        sender: msg.senderType === 'agent' ? 'agent' : 'user',
-        senderType: msg.senderType,
-        senderName: msg.senderId || 'Usuário',
-        createdAt: msg.createdAt.toISOString(),
-        threadId: msg.threadId,
-      }));
-
-      // Implementar paginação simples
-      const start = page * limit;
-      const end = start + limit;
-      const paginatedMessages = formattedMessages.slice(start, end);
-      const hasMore = formattedMessages.length > end;
-
-      return {
-        messages: paginatedMessages,
-        hasMore,
-        total: formattedMessages.length,
-        page,
-      };
-    } catch (error) {
-      this.logger.error('Error getting history:', error);
-      return { error: 'Erro ao buscar histórico' };
     }
   }
 
   @SubscribeMessage('sendMessage')
   async handleSendMessage(
-    @MessageBody() data: { text: string; threadId?: string },
-    @ConnectedSocket() client: AuthenticatedSocket,
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { text: string; threadId?: string; tempId?: string },
   ) {
     try {
-      if (!client.user) {
-        return { error: 'Usuário não autenticado' };
-      }
-
-      const user = client.user;
-      
-      // Sempre usar o thread padrão da empresa para evitar problemas de foreign key
-      const defaultThread = await this.messageService.getOrCreateDefaultThread(user.companyId);
-      const threadId = defaultThread.id;
-
-      // Salvar mensagem no banco
-      const savedMessage = await this.messageService.createMessage({
-        threadId: threadId,
-        senderType: user.role === 'agent' ? 'agent' : 'contact',
-        senderId: user.id,
-        content: data.text,
-      });
-
-      const chatMessage: ChatMessage = {
-        id: savedMessage.id,
-        text: savedMessage.content || '',
-        sender: user.role === 'agent' ? 'agent' : 'user',
-        senderType: savedMessage.senderType as 'agent' | 'contact',
-        senderName: user.name,
-        createdAt: savedMessage.createdAt.toISOString(),
-        threadId: savedMessage.threadId,
-      };
-
-      // Broadcast para todos os usuários da mesma empresa
-      this.broadcastToCompany(user.companyId, 'message', chatMessage);
-
-      return { message: chatMessage, success: true };
-    } catch (error) {
-      this.logger.error('Error sending message:', error);
-      return { error: 'Erro ao enviar mensagem' };
-    }
-  }
-
-  @SubscribeMessage('message')
-  async handleMessage(
-    @MessageBody() data: { text: string },
-    @ConnectedSocket() client: AuthenticatedSocket,
-  ) {
-    try {
-      if (!client.user) {
-        client.emit('error', { message: 'Usuário não autenticado' });
+      const user = this.connectedUsers.get(client.id);
+      if (!user) {
+        client.emit('messageError', { message: 'User not found' });
         return;
       }
 
-      const user = client.user;
-      
-      // Buscar thread padrão da empresa
-      const defaultThread = await this.messageService.getOrCreateDefaultThread(user.companyId);
+      if (!user.companyId) {
+        client.emit('messageError', { message: 'Company not found' });
+        return;
+      }
 
-      // Salvar mensagem no banco
-      const savedMessage = await this.messageService.createMessage({
-        threadId: defaultThread.id,
-        senderType: user.role === 'agent' ? 'agent' : 'contact',
-        senderId: user.id,
-        content: data.text,
-      });
+      // Get or create thread
+      let threadId = data.threadId;
+      if (!threadId) {
+        // Use o novo método que garante um thread válido
+        const thread = await this.chatService.getOrCreateActiveThread(
+          user.companyId,
+          user.id
+        );
+        threadId = thread.id;
+      }
 
-      const chatMessage: ChatMessage = {
-        id: savedMessage.id,
-        text: savedMessage.content || '',
-        sender: user.role === 'agent' ? 'agent' : 'user',
-        senderType: savedMessage.senderType as 'agent' | 'contact',
-        senderName: user.name,
-        createdAt: savedMessage.createdAt.toISOString(),
-        threadId: savedMessage.threadId,
-      };
+      // Save message to database
+      if (threadId) { // Adiciona verificação para garantir que threadId não é undefined
+        const message = await this.chatService.createMessage({
+          threadId,
+          senderType: 'user',
+          senderId: user.id,
+          content: data.text,
+        });
 
-      // Broadcast para todos os usuários da mesma empresa
-      this.broadcastToCompany(user.companyId, 'message', chatMessage);
+        const enrichedMessage = {
+          id: message.id,
+          text: message.content,
+          sender: 'user',
+          senderName: user.name,
+          senderId: user.id,
+          threadId: message.threadId,
+          createdAt: message.createdAt.toISOString(),
+        };
 
-      return chatMessage;
+        // Broadcast to company room
+        this.server.to(`company:${user.companyId}`).emit('message', enrichedMessage);
+
+        // Send confirmation to sender with threadId
+        client.emit('messageDelivered', { 
+          tempId: data.tempId, 
+          message: enrichedMessage,
+          threadId: threadId // Incluir threadId na resposta
+        });
+
+        return { success: true, message: enrichedMessage, threadId };
+      } else {
+        // Lidar com o caso onde o threadId é undefined
+        const errorMessage = 'Ocorreu um erro ao obter ou criar o chat. Tente novamente.';
+        this.logger.error(errorMessage);
+        client.emit('messageError', { 
+          message: errorMessage,
+          tempId: data.tempId 
+        });
+      }
     } catch (error) {
-      this.logger.error('Error handling message:', error);
-      client.emit('error', { message: 'Erro ao enviar mensagem' });
+      this.logger.error(`Send message error: ${error.message}`);
+      client.emit('messageError', { 
+        message: 'Failed to send message',
+        tempId: data.tempId 
+      });
+    }
+  }
+
+  @SubscribeMessage('getHistory')
+  async handleGetHistory(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { threadId?: string; page?: number; limit?: number },
+  ) {
+    try {
+      const user = this.connectedUsers.get(client.id);
+      if (!user) {
+        return { error: 'User not found' };
+      }
+
+      let messages: any[] = [];
+      let hasMore = false;
+
+      if (data.threadId) {
+        // Get specific thread messages
+        messages = await this.chatService.getThreadMessages(
+          data.threadId,
+          data.limit || 50,
+          (data.page || 0) * (data.limit || 50)
+        );
+        hasMore = messages.length === (data.limit || 50);
+      } else {
+        // Get recent messages from company
+        const threads = await this.chatService.getCompanyThreads(
+          user.companyId!,
+          1,
+          0
+        );
+        
+        if (threads.length > 0) {
+          messages = await this.chatService.getThreadMessages(threads[0].id);
+        }
+      }
+
+      const formattedMessages = messages.map(msg => ({
+        id: msg.id,
+        text: msg.content,
+        sender: msg.senderType,
+        senderId: msg.senderId,
+        threadId: msg.threadId,
+        createdAt: msg.createdAt.toISOString(),
+      }));
+
+      return { messages: formattedMessages, hasMore };
+    } catch (error) {
+      this.logger.error(`Get history error: ${error.message}`);
+      return { error: 'Failed to get message history' };
     }
   }
 
   @SubscribeMessage('typing')
-  handleTyping(@ConnectedSocket() client: AuthenticatedSocket) {
-    if (!client.user) return;
-    
-    this.notifyCompanyUsers(client.user.companyId, 'user_typing', {
-      userId: client.user.id,
-      userName: client.user.name,
-    }, client.id);
+  handleTyping(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { isTyping: boolean; threadId?: string },
+  ) {
+    const user = this.connectedUsers.get(client.id);
+    if (!user) return;
+
+    // Broadcast typing status to company room (except sender)
+    client.to(`company:${user.companyId}`).emit('userTyping', {
+      userId: user.id,
+      userName: user.name,
+      isTyping: data.isTyping,
+      threadId: data.threadId,
+    });
   }
 
-  @SubscribeMessage('stop_typing')
-  handleStopTyping(@ConnectedSocket() client: AuthenticatedSocket) {
-    if (!client.user) return;
-    
-    this.notifyCompanyUsers(client.user.companyId, 'user_stopped_typing', {
-      userId: client.user.id,
-      userName: client.user.name,
-    }, client.id);
-  }
-
-  // Métodos utilitários
-  private extractTokenFromSocket(client: Socket): string | null {
-    // Token pode vir do handshake query ou auth header
-    const token = client.handshake.auth?.token || 
-                 client.handshake.query?.token ||
-                 client.request.headers.authorization?.replace('Bearer ', '');
-    
-    return token || null;
-  }
-
-  private broadcastToCompany(companyId: string, event: string, data: any) {
-    for (const [socketId, user] of this.connectedUsers) {
-      if (user.companyId === companyId) {
-        this.server.to(socketId).emit(event, data);
+  @SubscribeMessage('joinThread')
+  async handleJoinThread(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { threadId: string },
+  ) {
+    try {
+      client.join(`thread:${data.threadId}`);
+      
+      // Mark messages as read
+      const user = this.connectedUsers.get(client.id);
+      if (user) {
+        await this.chatService.markMessagesAsRead(data.threadId, user.id);
       }
+
+      return { success: true };
+    } catch (error) {
+      this.logger.error(`Join thread error: ${error.message}`);
+      return { error: 'Failed to join thread' };
     }
   }
 
-  private notifyCompanyUsers(companyId: string, event: string, data: any, excludeSocketId?: string) {
-    for (const [socketId, user] of this.connectedUsers) {
-      if (user.companyId === companyId && socketId !== excludeSocketId) {
-        this.server.to(socketId).emit(event, data);
+  private async sendMessageHistory(client: Socket, companyId: string) {
+    try {
+      // Verificar se companyId é válido
+      if (!companyId) {
+        client.emit('history', []);
+        return;
+      }
+
+      const threads = await this.chatService.getCompanyThreads(companyId, 1, 0);
+      
+      if (threads.length > 0 && threads[0].id) {
+        const messages = await this.chatService.getThreadMessages(threads[0].id);
+        const formattedMessages = messages.map(msg => ({
+          id: msg.id,
+          text: msg.content,
+          sender: msg.senderType,
+          senderId: msg.senderId,
+          threadId: msg.threadId,
+          createdAt: msg.createdAt.toISOString(),
+        }));
+
+        client.emit('history', formattedMessages);
+      } else {
+        // Não há threads ainda, enviar histórico vazio
+        client.emit('history', []);
+      }
+    } catch (error) {
+      this.logger.error(`Send history error: ${error.message}`);
+      client.emit('history', []);
+    }
+  }
+
+  private broadcastUserList(companyId: string) {
+    const companyUsers = Array.from(this.connectedUsers.values())
+      .filter(user => user.companyId === companyId)
+      .map(user => ({
+        id: user.id,
+        name: user.name,
+        connectedAt: user.connectedAt,
+      }));
+
+    this.server.to(`company:${companyId}`).emit('onlineUsers', companyUsers);
+  }
+
+  // Helper method to send message to specific user
+  sendToUser(userId: string, event: string, data: any) {
+    const socketId = this.userSockets.get(userId);
+    if (socketId) {
+      this.server.to(socketId).emit(event, data);
+      return true;
+    }
+    return false;
+  }
+
+  // Get connected users stats
+  getConnectionStats() {
+    const stats = {
+      totalConnections: this.connectedUsers.size,
+      usersByCompany: new Map<string, number>(),
+    };
+
+    for (const user of this.connectedUsers.values()) {
+      if (user.companyId) {
+        const current = stats.usersByCompany.get(user.companyId) || 0;
+        stats.usersByCompany.set(user.companyId, current + 1);
       }
     }
+
+    return stats;
   }
 }
