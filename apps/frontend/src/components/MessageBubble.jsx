@@ -11,6 +11,7 @@ import {
   PaperClipIcon,
   DocumentIcon
 } from "@heroicons/react/24/outline";
+import MarkdownPreview from './ui/MarkdownPreview';
 import { CheckIcon as CheckSolidIcon } from "@heroicons/react/24/solid";
 import { LoadingDots } from "./ui/LoadingSpinner";
 
@@ -263,8 +264,12 @@ export default function MessageBubble({
           )}
         >
           {/* Message content */}
-          <div className="break-words whitespace-pre-wrap">
-            {message.text || message.content}
+          <div className="break-words">
+            {message.type === 'TEXT' ? (
+              <MarkdownPreview content={message.text || message.content} />
+            ) : (
+              <div className="whitespace-pre-wrap">{message.text || message.content}</div>
+            )}
           </div>
           
           {/* Attachments */}

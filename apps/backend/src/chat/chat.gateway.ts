@@ -11,6 +11,11 @@ import { Server, Socket } from 'socket.io';
 import { Logger } from '@nestjs/common';
 import { ChatService } from './chat.service';
 
+interface ReactionEventData {
+  messageId: string;
+  emoji: string;
+}
+
 interface ConnectedUser {
   id: string;
   socketId: string;
@@ -327,4 +332,5 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
     return stats;
   }
+
 }

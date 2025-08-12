@@ -16,11 +16,18 @@
     "@emoji-mart/data": "^1.2.1",
     "@emoji-mart/react": "^1.1.1",
     "@heroicons/react": "^2.2.0",
+    "@types/dompurify": "^3.2.0",
+    "@types/marked": "^6.0.0",
     "clsx": "^2.1.1",
     "dayjs": "^1.11.13",
+    "dompurify": "^3.2.6",
     "emoji-mart": "^5.6.0",
+    "emoji-picker-react": "^4.13.2",
+    "marked": "^16.1.2",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
     "socket.io-client": "^4.8.1"
   },
   "devDependencies": {

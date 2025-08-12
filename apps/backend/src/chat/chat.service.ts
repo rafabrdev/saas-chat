@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { MessageType, MessageStatus } from '@prisma/client';
 
 export interface CreateMessageDto {
   threadId: string;
@@ -66,7 +67,13 @@ export class ChatService {
     return thread;
   }
 
-  async createMessage(data: CreateMessageDto) {
+  async createMessage(data: {
+    content: string;
+    threadId: string;
+    senderType: string;
+    senderId?: string;
+    type?: MessageType;
+  }) {
     // Verificar se o thread existe
     const thread = await this.prisma.thread.findUnique({
       where: { id: data.threadId },
@@ -82,8 +89,9 @@ export class ChatService {
         senderType: data.senderType,
         senderId: data.senderId,
         content: data.content,
-        contentJson: data.contentJson,
-        attachments: data.attachments,
+        contentHtml: data.content, // Por enquanto, salvar o mesmo conteúdo
+        type: data.type || MessageType.TEXT,
+        status: MessageStatus.SENT,
       },
     });
 
@@ -168,4 +176,5 @@ export class ChatService {
       },
     });
   }
+
 }

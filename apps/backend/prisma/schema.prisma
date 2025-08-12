@@ -29,6 +29,7 @@ model User {
   role      String
   active    Boolean  @default(true)
   createdAt DateTime @default(now())
+  messageReactions MessageReaction[]
 }
 
 model Contact {
@@ -64,10 +65,42 @@ model Message {
   senderType  String
   senderId    String?
   content     String?
+  contentHtml String?  // Conteúdo formatado HTML
   contentJson Json?
   attachments Json?
+  type        MessageType @default(TEXT)
+  status      MessageStatus @default(SENT)
   createdAt   DateTime @default(now())
   readAt      DateTime?
+  reactions MessageReaction[]
+}
+
+enum MessageType {
+  TEXT
+  IMAGE
+  FILE
+  SYSTEM
+}
+
+enum MessageStatus {
+  SENT
+  DELIVERED
+  READ
+  FAILED
+}
+
+model MessageReaction {
+  id        String   @id @default(cuid())
+  emoji     String
+  messageId String
+  userId    String
+  createdAt DateTime @default(now())
+
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId, emoji])
+  @@map("message_reactions")
 }
 
 model Metric {
