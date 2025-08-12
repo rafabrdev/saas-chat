@@ -47,7 +47,7 @@ export function useSocket(options = {}) {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
     };
-  }, [connectionState]);
+  }, [connectionState]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const connect = useCallback(() => {
     if (!isOnline) {
