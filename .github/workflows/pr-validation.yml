@@ -43,7 +43,7 @@ jobs:
           pnpm --filter @saas-chat/frontend build
       
       - name: Comment PR
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         if: always()
         with:
           script: |
